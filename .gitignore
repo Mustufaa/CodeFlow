@@ -5,6 +5,7 @@ backend/.venv/
 
 # Python cache and local artifacts
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *.pyo
 *.pyd
@@ -16,8 +17,62 @@ htmlcov/
 # Environment files
 .env
 backend/.env
+.env
+secrets/
+*.pem
 
-# Build output
+# Python build output
 build/
 dist/
 *.egg-info/
+pip-wheel-metadata/
+__pypackages__/
+
+# Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~
+
+# Node dependencies and build artifacts
+frontend/node_modules/
+node_modules/
+.next/
+out/
+.vercel/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Local OS files
+*.DS_Store
+*.AppleDouble
+.LSOverride
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+
+# SQLite database files
+*.sqlite3
+*.db
+
+# Ignore environment-specific executable files
+*.exe
+*.dll
+*.so
+*.dylib
