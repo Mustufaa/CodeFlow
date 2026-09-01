@@ -9,6 +9,7 @@ from app.github.auth import (
     get_github_app,
     get_github_app_installations,
     get_installation_access_token,
+    get_repository_installation_id,
 )
 
 from app.github.client import GitHubClient
@@ -187,7 +188,10 @@ async def get_repository(
     Test repository access using the GitHub App.
     """
 
-    installation_id = 153545322
+    installation_id = await get_repository_installation_id(
+    owner=owner,
+    repo=repo,
+)
 
     try:
         client = GitHubClient()
@@ -240,7 +244,10 @@ async def get_pull_request(
     Test Pull Request access using the GitHub App.
     """
 
-    installation_id = 153545322
+    installation_id = await get_repository_installation_id(
+    owner=owner,
+    repo=repo,
+)
 
     try:
         client = GitHubClient()
@@ -306,7 +313,10 @@ async def get_pull_request_files(
     review-ready structure.
     """
 
-    installation_id = 153545322
+    installation_id = await get_repository_installation_id(
+    owner=owner,
+    repo=repo,
+)
 
     try:
         client = GitHubClient()
@@ -371,7 +381,10 @@ async def review_pull_request(
     GitHub inline review
     """
 
-    installation_id = 153545322
+    installation_id = await get_repository_installation_id(
+    owner=owner,
+    repo=repo,
+)
 
     try:
         client = GitHubClient()
@@ -454,13 +467,20 @@ async def github_webhook(
     ),
 ):
     """
-    Receive and verify GitHub webhook events.
+    Receive, verify, and process GitHub webhook events.
+
+    Pull Request events with actions:
+        - opened
+        - synchronize
+        - reopened
+
+    automatically trigger the AI code-review pipeline.
     """
 
     payload = await request.body()
 
     # --------------------------------------------------------
-    # Verify GitHub signature
+    # 1. Verify GitHub signature
     # --------------------------------------------------------
 
     if not verify_github_signature(
@@ -469,9 +489,7 @@ async def github_webhook(
     ):
         raise HTTPException(
             status_code=401,
-            detail=(
-                "Invalid GitHub webhook signature."
-            ),
+            detail="Invalid GitHub webhook signature.",
         )
 
     data = await request.json()
@@ -480,10 +498,114 @@ async def github_webhook(
         "X-GitHub-Event"
     )
 
+    action = data.get("action")
+
+    # --------------------------------------------------------
+    # 2. Only process relevant Pull Request events
+    # --------------------------------------------------------
+
+    review_actions = {
+        "opened",
+        "synchronize",
+        "reopened",
+    }
+
+    if event != "pull_request" or action not in review_actions:
+        return {
+            "message": "Webhook received but no review triggered.",
+            "event": event,
+            "action": action,
+        }
+
+    # --------------------------------------------------------
+    # 3. Extract installation and repository information
+    # --------------------------------------------------------
+
+    installation_id = (
+        data.get("installation", {})
+        .get("id")
+    )
+
+    repository = data.get("repository", {})
+
+    owner = (
+        repository.get("owner", {})
+        .get("login")
+    )
+
+    repo = repository.get("name")
+
+    pull_number = data.get("number")
+
+    if not installation_id:
+        raise HTTPException(
+            status_code=400,
+            detail="GitHub installation ID missing from webhook payload.",
+        )
+
+    if not owner or not repo or not pull_number:
+        raise HTTPException(
+            status_code=400,
+            detail="Repository or Pull Request information missing from webhook payload.",
+        )
+
+    # --------------------------------------------------------
+    # 4. Fetch changed files
+    # --------------------------------------------------------
+
+    client = GitHubClient()
+
+    files = await client.get_pull_request_files(
+        installation_id=installation_id,
+        owner=owner,
+        repo=repo,
+        pull_number=pull_number,
+    )
+
+    # --------------------------------------------------------
+    # 5. Build review-ready files
+    # --------------------------------------------------------
+
+    review_files = [
+        build_review_file(
+            filename=file.get("filename"),
+            status=file.get("status"),
+            patch=file.get("patch"),
+        )
+        for file in files
+    ]
+
+    # --------------------------------------------------------
+    # 6. Run AI review
+    # --------------------------------------------------------
+
+    review_result = await review_changed_files(
+        review_files
+    )
+
+    # --------------------------------------------------------
+    # 7. Post inline review to GitHub
+    # --------------------------------------------------------
+
+    github_review = await post_review_to_github(
+        installation_id=installation_id,
+        owner=owner,
+        repo=repo,
+        pull_number=pull_number,
+        review_result=review_result,
+    )
+
+    # --------------------------------------------------------
+    # 8. Return processing result
+    # --------------------------------------------------------
+
     return {
-        "message": (
-            "GitHub webhook received"
-        ),
+        "message": "GitHub Pull Request reviewed successfully.",
         "event": event,
-        "action": data.get("action"),
+        "action": action,
+        "repository": f"{owner}/{repo}",
+        "pull_request": pull_number,
+        "installation_id": installation_id,
+        "review": review_result.model_dump(),
+        "github_review": github_review,
     }

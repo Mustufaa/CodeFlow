@@ -160,3 +160,20 @@ async def get_installation_access_token(
     data = response.json()
 
     return data["token"]
+
+async def get_repository_installation_id(
+    owner: str,
+    repo: str,
+) -> int:
+    installations = await get_github_app_installations()
+
+    for installation in installations:
+        account = installation.get("account")
+        account_login = account.get("login") if account else None
+
+        if account_login == owner:
+            return installation["id"]
+
+    raise RuntimeError(
+        f"GitHub App installation not found for owner: {owner}"
+    )
