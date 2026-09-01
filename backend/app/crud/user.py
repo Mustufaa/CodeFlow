@@ -27,11 +27,14 @@ async def get_user_by_verification_token(
     token: str,
 ):
     """
-    Retrieve a user by verification token.
+    Retrieve a user by a valid verification token.
     """
+
     result = await db.execute(
         select(User).where(
-            User.verification_token == token
+            User.verification_token == token,
+            User.verification_token_expiry
+            > datetime.now(timezone.utc),
         )
     )
 
@@ -49,7 +52,8 @@ async def get_user_by_reset_token(
     result = await db.execute(
         select(User).where(
             User.reset_password_token == token,
-            User.reset_password_expiry > datetime.now(timezone.utc),
+            User.reset_password_expiry
+            > datetime.now(timezone.utc),
         )
     )
 
@@ -60,6 +64,7 @@ async def create_user(
     db: AsyncSession,
     user: UserRegister,
     verification_token: str,
+    verification_token_expiry: datetime,
 ):
     """
     Create a new user.
@@ -71,6 +76,7 @@ async def create_user(
         hashed_password=hash_password(user.password),
         is_verified=False,
         verification_token=verification_token,
+        verification_token_expiry=verification_token_expiry,
     )
 
     db.add(db_user)

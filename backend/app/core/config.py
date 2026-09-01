@@ -7,14 +7,18 @@ class Settings:
     # Database
     # ============================================================
 
-    DATABASE_URL: str = config("DATABASE_URL")
+    DATABASE_URL: str = config(
+        "DATABASE_URL"
+    )
 
 
     # ============================================================
     # JWT
     # ============================================================
 
-    SECRET_KEY: str = config("SECRET_KEY")
+    SECRET_KEY: str = config(
+        "SECRET_KEY"
+    )
 
     ALGORITHM: str = config(
         "ALGORITHM",
@@ -32,11 +36,17 @@ class Settings:
     # Email
     # ============================================================
 
-    MAIL_USERNAME: str = config("MAIL_USERNAME")
+    MAIL_USERNAME: str = config(
+        "MAIL_USERNAME"
+    )
 
-    MAIL_PASSWORD: str = config("MAIL_PASSWORD")
+    MAIL_PASSWORD: str = config(
+        "MAIL_PASSWORD"
+    )
 
-    MAIL_FROM: str = config("MAIL_FROM")
+    MAIL_FROM: str = config(
+        "MAIL_FROM"
+    )
 
     MAIL_PORT: int = config(
         "MAIL_PORT",
@@ -82,8 +92,8 @@ class Settings:
     )
 
     GITHUB_PRIVATE_KEY_PATH: str = config(
-    "GITHUB_PRIVATE_KEY_PATH",
-    default="",
+        "GITHUB_PRIVATE_KEY_PATH",
+        default="",
     )
 
     GITHUB_WEBHOOK_SECRET: str = config(
@@ -91,5 +101,39 @@ class Settings:
         default="",
     )
 
+
+    # ============================================================
+    # Gemini
+    # ============================================================
+
+    GEMINI_API_KEY: str = config(
+        "GEMINI_API_KEY",
+        default="",
+    )
+
+    GEMINI_MODEL: str = config(
+        "GEMINI_MODEL",
+        default="gemini-3-flash-preview",
+    )
+
+
+    # ============================================================
+    # OpenRouter
+    # ============================================================
+
+    OPENROUTER_API_KEY: str = config(
+        "OPENROUTER_API_KEY",
+        default="",
+    )
+
+    OPENROUTER_MODEL: str = config(
+        "OPENROUTER_MODEL",
+        default="google/gemma-4-31b-it:free",
+    )
+
+
+# ============================================================
+# Settings Instance
+# ============================================================
 
 settings = Settings()

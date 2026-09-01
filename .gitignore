@@ -76,3 +76,6 @@ pnpm-debug.log*
 *.dll
 *.so
 *.dylib
+test_diff.py
+test_gemini.py
+test_review.py

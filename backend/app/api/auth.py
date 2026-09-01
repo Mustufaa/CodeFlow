@@ -61,12 +61,20 @@ async def register(
             detail="Email already registered",
         )
 
+    # Generate verification token
     verification_token = generate_token()
+
+    # Token expires after 30 minutes
+    verification_token_expiry = (
+        datetime.now(timezone.utc)
+        + timedelta(minutes=30)
+    )
 
     db_user = await create_user(
         db=db,
         user=user,
         verification_token=verification_token,
+        verification_token_expiry=verification_token_expiry,
     )
 
     await send_verification_email(
@@ -102,8 +110,12 @@ async def verify_email(
             detail="Invalid or expired verification token.",
         )
 
+    # Verify user
     user.is_verified = True
+
+    # Invalidate verification token
     user.verification_token = None
+    user.verification_token_expiry = None
 
     await db.commit()
     await db.refresh(user)
@@ -137,6 +149,7 @@ async def login(
             detail="Invalid email or password",
         )
 
+    # User must verify email before login
     if not db_user.is_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -178,10 +191,12 @@ async def forgot_password(
             )
         }
 
+    # Generate reset token
     reset_token = generate_token()
 
     user.reset_password_token = reset_token
 
+    # Reset token expires after 30 minutes
     user.reset_password_expiry = (
         datetime.now(timezone.utc)
         + timedelta(minutes=30)
@@ -227,7 +242,7 @@ async def reset_password(
         request.new_password
     )
 
-    # Invalidate token
+    # Invalidate reset token
     user.reset_password_token = None
     user.reset_password_expiry = None
 

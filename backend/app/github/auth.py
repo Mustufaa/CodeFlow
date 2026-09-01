@@ -64,6 +64,65 @@ def create_github_app_jwt() -> str:
     return token
 
 
+async def get_github_app() -> dict:
+    """
+    Get GitHub App information using the App JWT.
+    Used to verify that GitHub App authentication works.
+    """
+
+    app_jwt = create_github_app_jwt()
+
+    url = f"{GITHUB_API_URL}/app"
+
+    headers = {
+        "Authorization": f"Bearer {app_jwt}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            url,
+            headers=headers,
+        )
+
+    if response.status_code != 200:
+        raise RuntimeError(
+            "Failed to authenticate GitHub App: "
+            f"{response.status_code} {response.text}"
+        )
+
+    return response.json()
+
+async def get_github_app_installations() -> list:
+    """
+    Get all installations of the GitHub App.
+    """
+
+    app_jwt = create_github_app_jwt()
+
+    url = f"{GITHUB_API_URL}/app/installations"
+
+    headers = {
+        "Authorization": f"Bearer {app_jwt}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            url,
+            headers=headers,
+        )
+
+    if response.status_code != 200:
+        raise RuntimeError(
+            "Failed to fetch GitHub App installations: "
+            f"{response.status_code} {response.text}"
+        )
+
+    return response.json()
+
 async def get_installation_access_token(
     installation_id: int,
 ) -> str:

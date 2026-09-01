@@ -12,3 +12,6 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+test_diff.py
+test_gemini.py
+test_review.py
