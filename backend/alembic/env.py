@@ -8,6 +8,9 @@ from app.db.base import Base
 
 # Import all models here so Alembic can detect them
 import app.models.user
+import app.models.tenant
+import app.models.tenant_member
+import app.models.github_installation
 
 # Alembic Config object
 config = context.config
