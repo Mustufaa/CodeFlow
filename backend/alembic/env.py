@@ -11,6 +11,7 @@ import app.models.user
 import app.models.tenant
 import app.models.tenant_member
 import app.models.github_installation
+import app.models.repository
 
 # Alembic Config object
 config = context.config
