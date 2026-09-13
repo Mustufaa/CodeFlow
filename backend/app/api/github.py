@@ -33,6 +33,8 @@ from app.models.review_run import (
     ReviewRunStatus,
 )
 
+from app.models.review_finding import ReviewFinding
+
 from app.services.repository_service import (
     get_repository_for_installation,
 )
@@ -650,7 +652,24 @@ async def github_webhook(
         )
 
         # ----------------------------------------------------
-        # 11. Mark ReviewRun as completed
+        # 11. Save individual review findings
+        # ----------------------------------------------------
+
+        for finding in review_result.findings:
+            db.add(
+                ReviewFinding(
+                    review_run_id=review_run.id,
+                    filename=finding.filename,
+                    line=finding.line,
+                    severity=finding.severity.value,
+                    category=finding.category.value,
+                    message=finding.message,
+                    suggestion=finding.suggestion,
+                )
+            )
+
+        # ----------------------------------------------------
+        # 12. Mark ReviewRun as completed
         # ----------------------------------------------------
 
         findings_count = len(
@@ -674,7 +693,7 @@ async def github_webhook(
 
     except Exception:
         # ----------------------------------------------------
-        # 12. Mark ReviewRun as failed
+        # 13. Mark ReviewRun as failed
         # ----------------------------------------------------
 
         review_run.status = (
@@ -689,7 +708,7 @@ async def github_webhook(
         raise
 
     # --------------------------------------------------------
-    # 13. Return processing result
+    # 14. Return processing result
     # --------------------------------------------------------
 
     return {

@@ -13,6 +13,7 @@ import app.models.tenant_member
 import app.models.github_installation
 import app.models.repository
 from app.models.review_run import ReviewRun
+from app.models.review_finding import ReviewFinding
 
 # Alembic Config object
 config = context.config
