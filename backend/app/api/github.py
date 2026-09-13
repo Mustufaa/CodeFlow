@@ -1,7 +1,9 @@
 import hashlib
 import hmac
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 
@@ -22,6 +24,17 @@ from app.services.review_service import (
 
 from app.services.github_review_service import (
     post_review_to_github,
+)
+
+from app.db.session import get_db
+
+from app.models.review_run import (
+    ReviewRun,
+    ReviewRunStatus,
+)
+
+from app.services.repository_service import (
+    get_repository_for_installation,
 )
 
 
@@ -189,9 +202,9 @@ async def get_repository(
     """
 
     installation_id = await get_repository_installation_id(
-    owner=owner,
-    repo=repo,
-)
+        owner=owner,
+        repo=repo,
+    )
 
     try:
         client = GitHubClient()
@@ -245,9 +258,9 @@ async def get_pull_request(
     """
 
     installation_id = await get_repository_installation_id(
-    owner=owner,
-    repo=repo,
-)
+        owner=owner,
+        repo=repo,
+    )
 
     try:
         client = GitHubClient()
@@ -314,9 +327,9 @@ async def get_pull_request_files(
     """
 
     installation_id = await get_repository_installation_id(
-    owner=owner,
-    repo=repo,
-)
+        owner=owner,
+        repo=repo,
+    )
 
     try:
         client = GitHubClient()
@@ -382,16 +395,12 @@ async def review_pull_request(
     """
 
     installation_id = await get_repository_installation_id(
-    owner=owner,
-    repo=repo,
-)
+        owner=owner,
+        repo=repo,
+    )
 
     try:
         client = GitHubClient()
-
-        # ----------------------------------------------------
-        # 1. Fetch Pull Request files
-        # ----------------------------------------------------
 
         files = await client.get_pull_request_files(
             installation_id=installation_id,
@@ -399,10 +408,6 @@ async def review_pull_request(
             repo=repo,
             pull_number=pull_number,
         )
-
-        # ----------------------------------------------------
-        # 2. Convert GitHub patches into structured files
-        # ----------------------------------------------------
 
         review_files = [
             build_review_file(
@@ -413,17 +418,9 @@ async def review_pull_request(
             for file in files
         ]
 
-        # ----------------------------------------------------
-        # 3. Send changed code to Gemini
-        # ----------------------------------------------------
-
         review_result = await review_changed_files(
             review_files
         )
-
-        # ----------------------------------------------------
-        # 4. Post findings to GitHub
-        # ----------------------------------------------------
 
         github_review = await post_review_to_github(
             installation_id=installation_id,
@@ -432,10 +429,6 @@ async def review_pull_request(
             pull_number=pull_number,
             review_result=review_result,
         )
-
-        # ----------------------------------------------------
-        # 5. Return complete result
-        # ----------------------------------------------------
 
         return {
             "message": (
@@ -465,6 +458,7 @@ async def github_webhook(
     x_hub_signature_256: str | None = Header(
         default=None,
     ),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Receive, verify, and process GitHub webhook events.
@@ -550,12 +544,43 @@ async def github_webhook(
         )
 
     # --------------------------------------------------------
-    # 4. Fetch changed files
+    # 4. Resolve repository from tenant database
     # --------------------------------------------------------
+
+    github_repository_id = repository.get("id")
+
+    if not github_repository_id:
+        raise HTTPException(
+            status_code=400,
+            detail="GitHub repository ID missing from webhook payload.",
+        )
+
+    connected_repository = (
+        await get_repository_for_installation(
+            db=db,
+            installation_id=installation_id,
+            github_repository_id=github_repository_id,
+        )
+    )
+
+    if not connected_repository:
+        return {
+            "message": (
+                "Repository is not connected "
+                "to any tenant. Review skipped."
+            ),
+            "repository": f"{owner}/{repo}",
+            "pull_request": pull_number,
+            "installation_id": installation_id,
+        }
 
     client = GitHubClient()
 
-    files = await client.get_pull_request_files(
+    # --------------------------------------------------------
+    # 5. Get Pull Request HEAD commit SHA
+    # --------------------------------------------------------
+
+    commit_sha = await client.get_pull_request_commit_sha(
         installation_id=installation_id,
         owner=owner,
         repo=repo,
@@ -563,49 +588,122 @@ async def github_webhook(
     )
 
     # --------------------------------------------------------
-    # 5. Build review-ready files
+    # 6. Create ReviewRun
     # --------------------------------------------------------
 
-    review_files = [
-        build_review_file(
-            filename=file.get("filename"),
-            status=file.get("status"),
-            patch=file.get("patch"),
+    review_run = ReviewRun(
+        tenant_id=connected_repository.tenant_id,
+        repository_id=connected_repository.id,
+        pull_request_number=pull_number,
+        commit_sha=commit_sha,
+        status=ReviewRunStatus.RUNNING.value,
+        findings_count=0,
+    )
+
+    db.add(review_run)
+    await db.commit()
+    await db.refresh(review_run)
+
+    try:
+        # ----------------------------------------------------
+        # 7. Fetch changed files
+        # ----------------------------------------------------
+
+        files = await client.get_pull_request_files(
+            installation_id=installation_id,
+            owner=owner,
+            repo=repo,
+            pull_number=pull_number,
         )
-        for file in files
-    ]
+
+        # ----------------------------------------------------
+        # 8. Build review-ready files
+        # ----------------------------------------------------
+
+        review_files = [
+            build_review_file(
+                filename=file.get("filename"),
+                status=file.get("status"),
+                patch=file.get("patch"),
+            )
+            for file in files
+        ]
+
+        # ----------------------------------------------------
+        # 9. Run AI review
+        # ----------------------------------------------------
+
+        review_result = await review_changed_files(
+            review_files
+        )
+
+        # ----------------------------------------------------
+        # 10. Post inline review to GitHub
+        # ----------------------------------------------------
+
+        github_review = await post_review_to_github(
+            installation_id=installation_id,
+            owner=owner,
+            repo=repo,
+            pull_number=pull_number,
+            review_result=review_result,
+        )
+
+        # ----------------------------------------------------
+        # 11. Mark ReviewRun as completed
+        # ----------------------------------------------------
+
+        findings_count = len(
+            getattr(
+                review_result,
+                "findings",
+                [],
+            )
+        )
+
+        review_run.status = (
+            ReviewRunStatus.COMPLETED.value
+        )
+        review_run.findings_count = findings_count
+        review_run.completed_at = datetime.now(
+            timezone.utc
+        )
+
+        await db.commit()
+        await db.refresh(review_run)
+
+    except Exception:
+        # ----------------------------------------------------
+        # 12. Mark ReviewRun as failed
+        # ----------------------------------------------------
+
+        review_run.status = (
+            ReviewRunStatus.FAILED.value
+        )
+        review_run.completed_at = datetime.now(
+            timezone.utc
+        )
+
+        await db.commit()
+
+        raise
 
     # --------------------------------------------------------
-    # 6. Run AI review
-    # --------------------------------------------------------
-
-    review_result = await review_changed_files(
-        review_files
-    )
-
-    # --------------------------------------------------------
-    # 7. Post inline review to GitHub
-    # --------------------------------------------------------
-
-    github_review = await post_review_to_github(
-        installation_id=installation_id,
-        owner=owner,
-        repo=repo,
-        pull_number=pull_number,
-        review_result=review_result,
-    )
-
-    # --------------------------------------------------------
-    # 8. Return processing result
+    # 13. Return processing result
     # --------------------------------------------------------
 
     return {
-        "message": "GitHub Pull Request reviewed successfully.",
+        "message": (
+            "GitHub Pull Request reviewed successfully."
+        ),
         "event": event,
         "action": action,
         "repository": f"{owner}/{repo}",
         "pull_request": pull_number,
         "installation_id": installation_id,
+        "review_run_id": review_run.id,
+        "review_run_status": review_run.status,
+        "findings_count": review_run.findings_count,
         "review": review_result.model_dump(),
         "github_review": github_review,
     }

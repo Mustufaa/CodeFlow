@@ -12,6 +12,7 @@ import app.models.tenant
 import app.models.tenant_member
 import app.models.github_installation
 import app.models.repository
+from app.models.review_run import ReviewRun
 
 # Alembic Config object
 config = context.config
